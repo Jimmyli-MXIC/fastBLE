@@ -6,7 +6,7 @@
       <module fileurl="file://$PROJECT_DIR$/commlib/commlib.iml" filepath="$PROJECT_DIR$/commlib/commlib.iml" />
       <module fileurl="file://$PROJECT_DIR$/fastble_test.iml" filepath="$PROJECT_DIR$/fastble_test.iml" />
       <module fileurl="file://$PROJECT_DIR$/mythings/mythings.iml" filepath="$PROJECT_DIR$/mythings/mythings.iml" />
-      <module fileurl="file://$PROJECT_DIR$/phoneapp/app.iml" filepath="$PROJECT_DIR$/phoneapp/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/phoneapp/phoneapp.iml" filepath="$PROJECT_DIR$/phoneapp/phoneapp.iml" />
     </modules>
   </component>
 </project>

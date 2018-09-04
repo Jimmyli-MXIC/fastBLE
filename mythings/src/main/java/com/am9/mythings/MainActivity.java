@@ -1,32 +1,21 @@
 package com.am9.mythings;
 
-import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.ProgressDialog;
-import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCharacteristic;
-import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.location.LocationManager;
-import android.os.Build;
 import android.os.Bundle;
 
-import java.util.ArrayList;
+import java.io.IOException;
 import java.util.List;
 
-import android.provider.Settings;
-import android.support.v4.app.ActivityCompat;
-import android.support.v4.content.ContextCompat;
 import android.util.Log;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.am9.commlib.MISCALEConnectUtil;
 import com.am9.commlib.OpenBlueTask;
+import com.am9.commlib.PeripheralHelper;
 import com.clj.fastble.BleManager;
 import com.clj.fastble.callback.BleGattCallback;
 import com.clj.fastble.callback.BleNotifyCallback;
@@ -34,18 +23,16 @@ import com.clj.fastble.callback.BleScanCallback;
 import com.clj.fastble.data.BleDevice;
 import com.clj.fastble.exception.BleException;
 import com.clj.fastble.utils.HexUtil;
-import com.google.android.things.contrib.driver.button.Button;
 
 public class MainActivity extends Activity {
     private static final String TAG = MainActivity.class.getSimpleName();
     private static final int REQUEST_CODE_OPEN_GPS = 1;
     private static final int REQUEST_CODE_PERMISSION_LOCATION = 2;
-
-    private static final String gpioButtonPinName = "BUS NAME";
-    private Button mButton;
     TextView txt;
 
     private ProgressDialog progressDialog;
+    private PeripheralHelper mPeripheral;
+//    private Gpio mLedGpio;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,10 +49,24 @@ public class MainActivity extends Activity {
                 .setConnectOverTime(20000)
                 .setOperateTimeout(5000);
 
-        txt=findViewById(R.id.mtext);
+        txt = findViewById(R.id.mtext);
         progressDialog = new ProgressDialog(this);
 
+        //new GpioUtil,构造函数里初始化各IO，举例：mLedGpio
+
+        Log.i(TAG, "Starting BlinkActivity");
+        mPeripheral = new PeripheralHelper();
+//        PeripheralManager pioService = PeripheralManager.getInstance();
+//        try {
+//            Log.i(TAG, "Configuring GPIO pins");
+//            mLedGpio = pioService.openGpio(BoardDefaults.getGPIOForLED());
+//            mLedGpio.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
+//
+//        } catch (IOException e) {
+//            Log.e(TAG, "Error configuring GPIO pins", e);
+//        }
     }
+
     @Override
     protected void onPostResume() {
         super.onPostResume();
@@ -86,6 +87,22 @@ public class MainActivity extends Activity {
 
     }
 
+    @Override
+    protected void onStop() {
+
+        Log.d(TAG, "onStop called.");
+        if (mPeripheral.getLedGpio() != null) {
+            try {
+                Log.d(TAG, "Unregistering LED.");
+                mPeripheral.getLedGpio().close();
+            } catch (IOException e) {
+                Log.e(TAG, "Error closing LED GPIO", e);
+            } finally {
+                mPeripheral.setLedGpio(null);
+            }
+        }
+        super.onStop();
+    }
 
     void regNotify(boolean isStop, final BleDevice bleDevice, final BluetoothGattCharacteristic characteristic) {
         if (!isStop) {
@@ -120,7 +137,10 @@ public class MainActivity extends Activity {
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
+
                                     addText(txt, HexUtil.formatHexString(characteristic.getValue(), true));
+                                    addText(txt, ""+convertToWeight(characteristic.getValue()));
+
                                 }
                             });
                         }
@@ -146,6 +166,8 @@ public class MainActivity extends Activity {
             @Override
             public void onConnectFail(BleDevice bleDevice, BleException exception) {
                 addText(txt, "connect.onConnectFail");
+//                setLEDValue(false);
+
                 progressDialog.dismiss();
                 Toast.makeText(MainActivity.this, getString(R.string.connect_fail), Toast.LENGTH_LONG).show();
             }
@@ -153,6 +175,8 @@ public class MainActivity extends Activity {
             @Override
             public void onConnectSuccess(BleDevice bleDevice, BluetoothGatt gatt, int status) {
                 addText(txt, "connect.onConnectSuccess");
+                mPeripheral.setLeDValue(true);
+
                 progressDialog.dismiss();
                 BluetoothGattCharacteristic characteristic = MISCALEConnectUtil.getCharacteristic(gatt);
                 regNotify(false, bleDevice, characteristic);
@@ -162,17 +186,31 @@ public class MainActivity extends Activity {
             public void onDisConnected(boolean isActiveDisConnected, BleDevice bleDevice, BluetoothGatt gatt, int status) {
                 progressDialog.dismiss();
                 addText(txt, "connect.onDisConnected:isActiveDisConnected:"+isActiveDisConnected);
+                mPeripheral.setLeDValue(false);
                 if (isActiveDisConnected) {
                     Toast.makeText(MainActivity.this, getString(R.string.active_disconnected), Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(MainActivity.this, getString(R.string.disconnected), Toast.LENGTH_LONG).show();
                 }
+                connect(bleDevice);
 
             }
         });
     }
 
-    void addText(TextView txt, String text) {
+//    /**
+//     *
+//     * @param value
+//     */
+//    private void setLeDValue(boolean value){
+//        try {
+//            mLedGpio.setValue(value);
+//        } catch (IOException e) {
+//            Log.e(TAG, "Error updating GPIO value", e);
+//        }
+//
+//    }
+    private void addText(TextView txt, String text) {
         txt.append(text + "\n");
 
         progressDialog.setMessage(text);
@@ -181,6 +219,24 @@ public class MainActivity extends Activity {
 
 
     }
+
+    /**
+     * 体重秤传回数据解析为体重数值（公斤）
+     * @param data
+     * @return weight
+     */
+    public static double convertToWeight(byte[] data) {
+        if (data == null || data.length < 1)
+            return -1;  //数据异常返回-1
+
+        if ((data[0] & 0xFF) == 0x22) {
+            Log.d(TAG, "(data[0] & 0xFF) == 22");
+            return (((data[2] & 0xFF) << 8) + (data[1] & 0xFF)) / 200.0;
+        }
+        return 0;   //数据未稳定返回0
+
+    }
+
     private void startScan() {
         BleManager.getInstance().scan(new BleScanCallback() {
             @Override
